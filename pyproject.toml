@@ -1,0 +1,27 @@
+[project]
+name = "mason"
+version = "0.0.1"
+authors = [
+  { name="Santosh Kumar Patro", email="hey@santoshkpatro.in" },
+]
+description = "A Full Stack Python MVC Framework for building web applications."
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+dependencies = [
+  "starlette[full]==0.47.2"
+]
+
+[project.urls]
+Homepage = "https://github.com/santoshkpatro/mason"
+Issues = "https://github.com/pypa/santoshkpatro/mason/issues"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

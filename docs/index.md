@@ -4,15 +4,15 @@ layout: home
 
 hero:
   name: "Mason — The Python Web Framework"
-  text: "Convention over configuration. Build fast, structured, maintainable web applications in Python."
+  text: "Build fast, structured, and maintainable web apps in Python—without the boilerplate."
   tagline: "A clean and opinionated MVC framework inspired by productivity."
   actions:
     - theme: brand
       text: Get Started
-      link: /getting-started
-    - theme: alt
-      text: View Examples
-      link: /examples
+      link: /guide/getting-started
+#    - theme: alt
+#      text: View Examples
+#      link: /examples
 
 features:
   - title: Convention-First

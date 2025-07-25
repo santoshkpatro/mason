@@ -105,8 +105,10 @@ class MasonApplication(Starlette):
                 request_context = {
                     "query_params": request.query_params,
                     "path_params": match.groupdict(),
+                    "method": method,
+                    "_request": request,
                 }
-                response = await action(request, **request_context)
+                response = await action(**request_context)
 
                 if response is not None:
                     await response(scope, receive, send)
@@ -115,7 +117,7 @@ class MasonApplication(Starlette):
                 # Now render a template if no response was returned
                 controller_name = controller_class.__name__.replace("Controller", "").lower()
                 template_name = f"{controller_name}/{action_name}.html"
-                template_context = {"request": request}
+                template_context = {"request": request, **getattr(controller_instance, "_template_context", {})}
                 html_response = self.templates.TemplateResponse(name = template_name, context = template_context)
                 await html_response(scope, receive, send)
                 return

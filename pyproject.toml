@@ -15,8 +15,13 @@ license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
 dependencies = [
-  "starlette[full]==0.47.2"
+    "starlette[full]==0.47.2",
+    "typer[all]==0.16.0",
+    "uvicorn==0.35.0"
 ]
+
+[project.scripts]
+mason = "mason.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/santoshkpatro/mason"

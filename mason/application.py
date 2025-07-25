@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 from starlette.applications import Starlette
 from starlette.responses import Response
-from starlette.requests import Request
+from starlette.requests import Request as StarletteRequest
 from starlette.templating import Jinja2Templates
 
 from mason.globals import get_settings
@@ -44,9 +44,18 @@ class MasonApplication(Starlette):
 
     def autoload(self):
         print("📦 Loading controllers...")
-        for file in self.controllers_dir.glob("*_controller.py"):
-            module_name = f"app.controllers.{file.stem}"
-            class_name = self.to_camel_case(file.stem)
+
+        for file in self.controllers_dir.rglob("*_controller.py"):
+            # relative_path: app/controllers/admin/logs_controller.py → admin/logs_controller
+            relative_path = file.relative_to(self.controllers_dir).with_suffix("")
+            path_parts = relative_path.parts  # ('admin', 'logs_controller')
+
+            # Build full module path: app.controllers.admin.logs_controller
+            module_path = ["app", "controllers", *path_parts]
+            module_name = ".".join(module_path)
+
+            # Build class name: AdminLogsController
+            class_name = self.to_camel_case("_".join(path_parts))
 
             try:
                 module = importlib.import_module(module_name)
@@ -54,9 +63,10 @@ class MasonApplication(Starlette):
                 mount_path = getattr(controller_class, "__mount_path__", None)
 
                 if not mount_path:
-                    print(f"⚠️ {class_name} missing @mount")
+                    print(f"⚠️ Skipping {class_name}: missing @mount decorator")
                     continue
 
+                route_count = 0
                 for name, method in inspect.getmembers(controller_class, inspect.isfunction):
                     if hasattr(method, "__routes__"):
                         for http_method, route_path in method.__routes__:
@@ -67,9 +77,13 @@ class MasonApplication(Starlette):
                                 "action": name,
                             }
                             print(f"🔗 Route registered: [{http_method}] {full_path} → {class_name}.{name}")
+                            route_count += 1
+
+                if route_count == 0:
+                    print(f"ℹ️ No route-decorated actions found in {class_name} (maybe utilities only)")
 
             except (ModuleNotFoundError, AttributeError) as e:
-                print(f"❌ Error loading {class_name}: {e}")
+                print(f"❌ Error loading {class_name} from {module_name}: {e}")
 
     def to_camel_case(self, snake_str):
         parts = snake_str.split('_')
@@ -85,13 +99,11 @@ class MasonApplication(Starlette):
         return f"^{regex}/?$"
 
     async def __call__(self, scope, receive, send):
-        print('🔍 Incoming request:', scope["method"], scope["path"])
-
         if scope["type"] != "http":
             await super().__call__(scope, receive, send)
             return
 
-        request = Request(scope, receive)
+        request = StarletteRequest(scope, receive)
         path = request.url.path
         method = request.method.upper()
 
@@ -108,20 +120,36 @@ class MasonApplication(Starlette):
                     "method": method,
                     "_request": request,
                 }
+
+                # Execute controller action
                 response = await action(**request_context)
 
+                # If the controller returns a valid Response
                 if response is not None:
                     await response(scope, receive, send)
                     return
 
-                # Now render a template if no response was returned
-                controller_name = controller_class.__name__.replace("Controller", "").lower()
-                template_name = f"{controller_name}/{action_name}.html"
-                template_context = {"request": request, **getattr(controller_instance, "_template_context", {})}
-                html_response = self.templates.TemplateResponse(name = template_name, context = template_context)
+                # Fallback to rendering a template
+                controller_file = Path(inspect.getfile(controller_class))
+                relative_controller_path = controller_file.relative_to(self.controllers_dir).with_suffix(
+                    "")  # e.g. admin/logs_controller
+
+                # Remove _controller suffix and convert to lowercase path
+                path_parts = list(relative_controller_path.parts)
+                path_parts[-1] = path_parts[-1].replace("_controller", "")
+                template_subpath = "/".join(path_parts).lower()
+
+                template_name = f"{template_subpath}/{action_name}.html"
+
+                template_context = {
+                    "request": request,
+                    **getattr(controller_instance, "_template_context", {})
+                }
+
+                html_response = self.templates.TemplateResponse(name=template_name, context=template_context)
                 await html_response(scope, receive, send)
                 return
 
-
+        # If no route matches
         response = Response("404 Not Found", status_code=404)
         await response(scope, receive, send)

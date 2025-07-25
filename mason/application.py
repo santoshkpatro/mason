@@ -121,24 +121,34 @@ class MasonApplication(Starlette):
                     "_request": request,
                 }
 
-                # Execute controller action
+                if hasattr(controller_instance, "before_action"):
+                    hook = controller_instance.before_action
+                    if inspect.iscoroutinefunction(hook):
+                        await hook(**request_context)
+                    else:
+                        hook(**request_context)
+
+                specific_before = f"before_{action_name}"
+                if hasattr(controller_instance, specific_before):
+                    hook = getattr(controller_instance, specific_before)
+                    if inspect.iscoroutinefunction(hook):
+                        await hook(**request_context)
+                    else:
+                        hook(**request_context)
+
+                # Execute main action
                 response = await action(**request_context)
 
-                # If the controller returns a valid Response
                 if response is not None:
                     await response(scope, receive, send)
                     return
 
-                # Fallback to rendering a template
+                # Fallback to rendering template
                 controller_file = Path(inspect.getfile(controller_class))
-                relative_controller_path = controller_file.relative_to(self.controllers_dir).with_suffix(
-                    "")  # e.g. admin/logs_controller
-
-                # Remove _controller suffix and convert to lowercase path
+                relative_controller_path = controller_file.relative_to(self.controllers_dir).with_suffix("")
                 path_parts = list(relative_controller_path.parts)
                 path_parts[-1] = path_parts[-1].replace("_controller", "")
                 template_subpath = "/".join(path_parts).lower()
-
                 template_name = f"{template_subpath}/{action_name}.html"
 
                 template_context = {
@@ -150,6 +160,5 @@ class MasonApplication(Starlette):
                 await html_response(scope, receive, send)
                 return
 
-        # If no route matches
         response = Response("404 Not Found", status_code=404)
         await response(scope, receive, send)

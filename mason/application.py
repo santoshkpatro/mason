@@ -1,6 +1,6 @@
 import importlib
-import re
 import inspect
+import re
 from pathlib import Path
 from starlette.applications import Starlette
 from starlette.responses import Response
@@ -9,21 +9,16 @@ from starlette.templating import Jinja2Templates
 
 from mason.globals import get_settings
 
+
 class MasonApplication(Starlette):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         self._settings = get_settings()
-        self.routing_table = {
-            "GET": {},
-            "POST": {},
-            "PUT": {},
-            "PATCH": {},
-            "DELETE": {},
-            "OPTIONS": {},
-            "HEAD": {}
-        }
+        self.routing_table = {method: {} for method in ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]}
         self.templates = Jinja2Templates(directory=str(self.views_dir))
+
+        # Autoload controllers
         self.autoload()
 
     @property
@@ -42,19 +37,21 @@ class MasonApplication(Starlette):
     def views_dir(self):
         return self.app_dir / "views"
 
+    @property
+    def models_dir(self):
+        return self.app_dir / "models"
+
     def autoload(self):
-        print("📦 Loading controllers...")
+        print("📦 Autoloading resources...")
+        self._autoload_controllers()
+
+    def _autoload_controllers(self):
+        print("📂 Loading controllers...")
 
         for file in self.controllers_dir.rglob("*_controller.py"):
-            # relative_path: app/controllers/admin/logs_controller.py → admin/logs_controller
             relative_path = file.relative_to(self.controllers_dir).with_suffix("")
-            path_parts = relative_path.parts  # ('admin', 'logs_controller')
-
-            # Build full module path: app.controllers.admin.logs_controller
-            module_path = ["app", "controllers", *path_parts]
-            module_name = ".".join(module_path)
-
-            # Build class name: AdminLogsController
+            path_parts = relative_path.parts
+            module_name = ".".join(["app", "controllers", *path_parts])
             class_name = self.to_camel_case("_".join(path_parts))
 
             try:
@@ -80,22 +77,20 @@ class MasonApplication(Starlette):
                             route_count += 1
 
                 if route_count == 0:
-                    print(f"ℹ️ No route-decorated actions found in {class_name} (maybe utilities only)")
+                    print(f"ℹ️ No route-decorated actions found in {class_name}")
 
             except (ModuleNotFoundError, AttributeError) as e:
                 print(f"❌ Error loading {class_name} from {module_name}: {e}")
 
     def to_camel_case(self, snake_str):
-        parts = snake_str.split('_')
-        return ''.join([part.capitalize() for part in parts])
+        return ''.join(word.capitalize() for word in snake_str.split('_'))
 
     def _normalize_path(self, base, route):
         return f"{base.rstrip('/')}/{route.lstrip('/')}"
 
     def _convert_path_to_regex(self, path):
-        # Converts /users/{id} → ^/users/(?P<id>[^/]+)\/?$
         regex = re.sub(r"{(\w+)}", r"(?P<\1>[^/]+)", path)
-        regex = regex.rstrip('/')  # Ensure we don't double the slash
+        regex = regex.rstrip('/')
         return f"^{regex}/?$"
 
     async def __call__(self, scope, receive, send):
@@ -121,29 +116,22 @@ class MasonApplication(Starlette):
                     "_request": request,
                 }
 
+                # before_action hook
                 if hasattr(controller_instance, "before_action"):
-                    hook = controller_instance.before_action
-                    if inspect.iscoroutinefunction(hook):
-                        await hook(**request_context)
-                    else:
-                        hook(**request_context)
+                    controller_instance.before_action(**request_context)
 
                 specific_before = f"before_{action_name}"
                 if hasattr(controller_instance, specific_before):
-                    hook = getattr(controller_instance, specific_before)
-                    if inspect.iscoroutinefunction(hook):
-                        await hook(**request_context)
-                    else:
-                        hook(**request_context)
+                    getattr(controller_instance, specific_before)(**request_context)
 
-                # Execute main action
-                response = await action(**request_context)
+                # Call the controller action
+                response = action(**request_context)
 
                 if response is not None:
                     await response(scope, receive, send)
                     return
 
-                # Fallback to rendering template
+                # Render template fallback
                 controller_file = Path(inspect.getfile(controller_class))
                 relative_controller_path = controller_file.relative_to(self.controllers_dir).with_suffix("")
                 path_parts = list(relative_controller_path.parts)
@@ -160,5 +148,4 @@ class MasonApplication(Starlette):
                 await html_response(scope, receive, send)
                 return
 
-        response = Response("404 Not Found", status_code=404)
-        await response(scope, receive, send)
+        await Response("404 Not Found", status_code=404)(scope, receive, send)
